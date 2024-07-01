@@ -1,19 +1,14 @@
 module API
 
-using libpolars_jll
-export libpolars_jll
-
 using CEnum
 
 @static if Sys.iswindows()
-    const libpolars_local = joinpath(@__DIR__, "../polars.dll")
+    const libpolars_local = joinpath(@__DIR__, "../deps/polars.dll")
 else
     const libpolars_local = joinpath(@__DIR__, "../c-polars/target/debug/libpolars.so")
 end
 
-@static if isfile(libpolars_local)
-    const libpolars = libpolars_local
-end
+const libpolars = libpolars_local
 
 
 struct ArrowSchema
