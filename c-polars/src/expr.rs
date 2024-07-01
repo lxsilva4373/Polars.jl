@@ -101,7 +101,7 @@ pub unsafe extern "C" fn polars_expr_alias(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_expr_prefix(
+pub unsafe extern "C" fn polars_expr_name_prefix(
     expr: *const polars_expr_t,
     name: *const u8,
     len: usize,
@@ -111,13 +111,19 @@ pub unsafe extern "C" fn polars_expr_prefix(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    let aliased = (*expr).inner.clone().prefix(name);
+    let aliased = (*expr).inner.clone().name().prefix(name);
     *out = make_expr(aliased);
     std::ptr::null()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_expr_suffix(
+pub unsafe extern "C" fn polars_expr_name_keep(expr: *const polars_expr_t) -> *const polars_expr_t {
+    let out = (*expr).inner.clone().name().keep();
+    make_expr(out)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_name_suffix(
     expr: *const polars_expr_t,
     name: *const u8,
     len: usize,
@@ -127,9 +133,14 @@ pub unsafe extern "C" fn polars_expr_suffix(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    let aliased = (*expr).inner.clone().suffix(name);
+    let aliased = (*expr).inner.clone().name().suffix(name);
     *out = make_expr(aliased);
     std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_count() -> *const polars_expr_t {
+    make_expr(polars::prelude::count())
 }
 
 #[no_mangle]
@@ -151,8 +162,6 @@ macro_rules! gen_impl_expr {
         }
     };
 }
-
-gen_impl_expr!(polars_expr_keep_name, Expr::keep_name);
 
 gen_impl_expr!(polars_expr_sum, Expr::sum);
 gen_impl_expr!(polars_expr_product, Expr::product);
@@ -177,7 +186,7 @@ gen_impl_expr!(polars_expr_tanh, Expr::tanh);
 
 gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
 gen_impl_expr!(polars_expr_unique, Expr::unique);
-gen_impl_expr!(polars_expr_count, Expr::count);
+gen_impl_expr!(polars_expr_count_unary, Expr::count);
 gen_impl_expr!(polars_expr_first, Expr::first);
 gen_impl_expr!(polars_expr_last, Expr::last);
 
@@ -194,6 +203,20 @@ gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls);
 gen_impl_expr!(polars_expr_implode, Expr::implode);
 gen_impl_expr!(polars_expr_flatten, Expr::flatten);
 gen_impl_expr!(polars_expr_reverse, Expr::reverse);
+
+macro_rules! gen_impl_expr_with_u8 {
+    ($n: ident, $t: expr) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $n(expr: *const polars_expr_t, ddof: u8) -> *const polars_expr_t {
+            let expr = &(*expr).inner;
+            let out_expr = $t(expr.clone(), ddof);
+            make_expr(out_expr)
+        }
+    };
+}
+
+gen_impl_expr_with_u8!(polars_expr_var, Expr::var);
+gen_impl_expr_with_u8!(polars_expr_std, Expr::std);
 
 macro_rules! gen_impl_expr_binary {
     ($n: ident, $t: expr) => {
@@ -223,6 +246,9 @@ gen_impl_expr_binary!(polars_expr_sub, core::ops::Sub::sub);
 gen_impl_expr_binary!(polars_expr_mul, core::ops::Mul::mul);
 gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
 
+gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null);
+gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan);
+
 macro_rules! gen_impl_expr_list {
     ($n: ident, $t: expr) => {
         #[no_mangle]
@@ -233,7 +259,7 @@ macro_rules! gen_impl_expr_list {
     };
 }
 
-gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths);
+gen_impl_expr_list!(polars_expr_list_len, ListNameSpace::len);
 gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max);
 gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min);
 gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max);
@@ -277,8 +303,8 @@ gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::to_uppercase);
 gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
 #[cfg(feature = "nightly")]
 gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
-gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::n_chars);
-gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::lengths);
+gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::len_chars);
+gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::len_bytes);
 gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode);
 
 macro_rules! gen_impl_expr_binary_str {
@@ -300,6 +326,7 @@ gen_impl_expr_binary_str!(
     polars_expr_str_contains_literal,
     StringNameSpace::contains_literal
 );
+gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split);
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_expr_struct_field_by_name(

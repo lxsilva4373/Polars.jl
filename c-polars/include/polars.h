@@ -23,6 +23,7 @@ typedef enum polars_value_type_t {
   PolarsValueTypeUtf8,
   PolarsValueTypeStruct,
   PolarsValueTypeBinary,
+  PolarsValueTypeCategorical,
   PolarsValueTypeUnknown,
 } polars_value_type_t;
 
@@ -115,6 +116,11 @@ void polars_lazy_frame_with_columns(struct polars_lazy_frame_t *df,
                                     const struct polars_expr_t *const *exprs,
                                     uintptr_t nexprs);
 
+const struct polars_error_t *polars_lazy_frame_with_row_count(struct polars_lazy_frame_t *df,
+                                                              const uint8_t *name,
+                                                              uintptr_t len,
+                                                              uint32_t offset);
+
 void polars_lazy_frame_select(struct polars_lazy_frame_t *df,
                               const struct polars_expr_t *const *exprs,
                               uintptr_t nexprs);
@@ -176,20 +182,22 @@ const struct polars_error_t *polars_expr_alias(const struct polars_expr_t *expr,
                                                uintptr_t len,
                                                const struct polars_expr_t **out);
 
-const struct polars_error_t *polars_expr_prefix(const struct polars_expr_t *expr,
-                                                const uint8_t *name,
-                                                uintptr_t len,
-                                                const struct polars_expr_t **out);
+const struct polars_error_t *polars_expr_name_prefix(const struct polars_expr_t *expr,
+                                                     const uint8_t *name,
+                                                     uintptr_t len,
+                                                     const struct polars_expr_t **out);
 
-const struct polars_error_t *polars_expr_suffix(const struct polars_expr_t *expr,
-                                                const uint8_t *name,
-                                                uintptr_t len,
-                                                const struct polars_expr_t **out);
+const struct polars_expr_t *polars_expr_name_keep(const struct polars_expr_t *expr);
+
+const struct polars_error_t *polars_expr_name_suffix(const struct polars_expr_t *expr,
+                                                     const uint8_t *name,
+                                                     uintptr_t len,
+                                                     const struct polars_expr_t **out);
+
+const struct polars_expr_t *polars_expr_count(void);
 
 const struct polars_expr_t *polars_expr_cast(const struct polars_expr_t *expr,
                                              enum polars_value_type_t dtype);
-
-const struct polars_expr_t *polars_expr_keep_name(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_sum(const struct polars_expr_t *expr);
 
@@ -233,7 +241,7 @@ const struct polars_expr_t *polars_expr_n_unique(const struct polars_expr_t *exp
 
 const struct polars_expr_t *polars_expr_unique(const struct polars_expr_t *expr);
 
-const struct polars_expr_t *polars_expr_count(const struct polars_expr_t *expr);
+const struct polars_expr_t *polars_expr_count_unary(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_first(const struct polars_expr_t *expr);
 
@@ -262,6 +270,10 @@ const struct polars_expr_t *polars_expr_implode(const struct polars_expr_t *expr
 const struct polars_expr_t *polars_expr_flatten(const struct polars_expr_t *expr);
 
 const struct polars_expr_t *polars_expr_reverse(const struct polars_expr_t *expr);
+
+const struct polars_expr_t *polars_expr_var(const struct polars_expr_t *expr, uint8_t ddof);
+
+const struct polars_expr_t *polars_expr_std(const struct polars_expr_t *expr, uint8_t ddof);
 
 const struct polars_expr_t *polars_expr_eq(const struct polars_expr_t *a,
                                            const struct polars_expr_t *b);
@@ -296,7 +308,13 @@ const struct polars_expr_t *polars_expr_mul(const struct polars_expr_t *a,
 const struct polars_expr_t *polars_expr_div(const struct polars_expr_t *a,
                                             const struct polars_expr_t *b);
 
-const struct polars_expr_t *polars_expr_list_lengths(const struct polars_expr_t *a);
+const struct polars_expr_t *polars_expr_fill_null(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_fill_nan(const struct polars_expr_t *a,
+                                                 const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_list_len(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_list_max(const struct polars_expr_t *a);
 
@@ -333,9 +351,9 @@ const struct polars_expr_t *polars_expr_str_to_uppercase(const struct polars_exp
 
 const struct polars_expr_t *polars_expr_str_to_lowercase(const struct polars_expr_t *a);
 
-const struct polars_expr_t *polars_expr_str_n_chars(const struct polars_expr_t *a);
+const struct polars_expr_t *polars_expr_str_len_chars(const struct polars_expr_t *a);
 
-const struct polars_expr_t *polars_expr_str_lengths(const struct polars_expr_t *a);
+const struct polars_expr_t *polars_expr_str_len_bytes(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_explode(const struct polars_expr_t *a);
 
@@ -347,6 +365,9 @@ const struct polars_expr_t *polars_expr_str_ends_with(const struct polars_expr_t
 
 const struct polars_expr_t *polars_expr_str_contains_literal(const struct polars_expr_t *a,
                                                              const struct polars_expr_t *b);
+
+const struct polars_expr_t *polars_expr_str_split(const struct polars_expr_t *a,
+                                                  const struct polars_expr_t *b);
 
 const struct polars_expr_t *polars_expr_struct_field_by_name(const struct polars_expr_t *a,
                                                              const uint8_t *name,
@@ -463,6 +484,10 @@ const struct polars_error_t *polars_value_utf8_get(struct polars_value_t *value,
 const struct polars_error_t *polars_value_binary_get(struct polars_value_t *value,
                                                      void *user,
                                                      IOCallback callback);
+
+const struct polars_error_t *polars_value_categorical_get(struct polars_value_t *value,
+                                                          void *user,
+                                                          IOCallback callback);
 
 /**
  * Used to get value of of a Struct value fields.
