@@ -6,7 +6,7 @@ export libpolars_jll
 using CEnum
 
 @static if Sys.iswindows()
-    const libpolars_local = joinpath(@__DIR__, "../c-polars/target/debug/polars.dll")
+    const libpolars_local = joinpath(@__DIR__, "../bin/polars.dll")
 else
     const libpolars_local = joinpath(@__DIR__, "../c-polars/target/debug/libpolars.so")
 end
