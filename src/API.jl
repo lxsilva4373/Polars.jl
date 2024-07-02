@@ -2,13 +2,10 @@ module API
 
 using CEnum
 
-@static if Sys.iswindows()
-    const libpolars_local = joinpath(@__DIR__, "../deps/polars.dll")
-else
-    const libpolars_local = joinpath(@__DIR__, "../c-polars/target/debug/libpolars.so")
+const libpolars_local = joinpath(@__DIR__, "..", "deps", "polars.dll")
+@static if isfile(libpolars_local)
+    const libpolars = libpolars_local
 end
-
-const libpolars = libpolars_local
 
 
 struct ArrowSchema
@@ -53,8 +50,7 @@ end
     PolarsValueTypeUtf8 = 13
     PolarsValueTypeStruct = 14
     PolarsValueTypeBinary = 15
-    PolarsValueTypeCategorical = 16
-    PolarsValueTypeUnknown = 17
+    PolarsValueTypeUnknown = 16
 end
 
 mutable struct polars_dataframe_t end
@@ -163,10 +159,6 @@ function polars_lazy_frame_with_columns(df, exprs, nexprs)
     @ccall libpolars.polars_lazy_frame_with_columns(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t)::Cvoid
 end
 
-function polars_lazy_frame_with_row_count(df, name, len, offset)
-    @ccall libpolars.polars_lazy_frame_with_row_count(df::Ptr{polars_lazy_frame_t}, name::Ptr{UInt8}, len::Csize_t, offset::UInt32)::Ptr{polars_error_t}
-end
-
 function polars_lazy_frame_select(df, exprs, nexprs)
     @ccall libpolars.polars_lazy_frame_select(df::Ptr{polars_lazy_frame_t}, exprs::Ptr{Ptr{polars_expr_t}}, nexprs::Csize_t)::Cvoid
 end
@@ -247,24 +239,20 @@ function polars_expr_alias(expr, name, len, out)
     @ccall libpolars.polars_expr_alias(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-function polars_expr_name_prefix(expr, name, len, out)
-    @ccall libpolars.polars_expr_name_prefix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
+function polars_expr_prefix(expr, name, len, out)
+    @ccall libpolars.polars_expr_prefix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
-function polars_expr_name_keep(expr)
-    @ccall libpolars.polars_expr_name_keep(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_name_suffix(expr, name, len, out)
-    @ccall libpolars.polars_expr_name_suffix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
-end
-
-function polars_expr_count()
-    @ccall libpolars.polars_expr_count()::Ptr{polars_expr_t}
+function polars_expr_suffix(expr, name, len, out)
+    @ccall libpolars.polars_expr_suffix(expr::Ptr{polars_expr_t}, name::Ptr{UInt8}, len::Csize_t, out::Ptr{Ptr{polars_expr_t}})::Ptr{polars_error_t}
 end
 
 function polars_expr_cast(expr, dtype)
     @ccall libpolars.polars_expr_cast(expr::Ptr{polars_expr_t}, dtype::polars_value_type_t)::Ptr{polars_expr_t}
+end
+
+function polars_expr_keep_name(expr)
+    @ccall libpolars.polars_expr_keep_name(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_sum(expr)
@@ -351,8 +339,8 @@ function polars_expr_unique(expr)
     @ccall libpolars.polars_expr_unique(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_count_unary(expr)
-    @ccall libpolars.polars_expr_count_unary(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_count(expr)
+    @ccall libpolars.polars_expr_count(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_first(expr)
@@ -411,14 +399,6 @@ function polars_expr_reverse(expr)
     @ccall libpolars.polars_expr_reverse(expr::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_var(expr, ddof)
-    @ccall libpolars.polars_expr_var(expr::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
-end
-
-function polars_expr_std(expr, ddof)
-    @ccall libpolars.polars_expr_std(expr::Ptr{polars_expr_t}, ddof::UInt8)::Ptr{polars_expr_t}
-end
-
 function polars_expr_eq(a, b)
     @ccall libpolars.polars_expr_eq(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
@@ -463,16 +443,8 @@ function polars_expr_div(a, b)
     @ccall libpolars.polars_expr_div(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_fill_null(a, b)
-    @ccall libpolars.polars_expr_fill_null(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_fill_nan(a, b)
-    @ccall libpolars.polars_expr_fill_nan(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
-
-function polars_expr_list_len(a)
-    @ccall libpolars.polars_expr_list_len(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_list_lengths(a)
+    @ccall libpolars.polars_expr_list_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_list_max(a)
@@ -539,12 +511,12 @@ function polars_expr_str_to_lowercase(a)
     @ccall libpolars.polars_expr_str_to_lowercase(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_str_len_chars(a)
-    @ccall libpolars.polars_expr_str_len_chars(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_str_n_chars(a)
+    @ccall libpolars.polars_expr_str_n_chars(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_str_len_bytes(a)
-    @ccall libpolars.polars_expr_str_len_bytes(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_str_lengths(a)
+    @ccall libpolars.polars_expr_str_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
 function polars_expr_str_explode(a)
@@ -563,8 +535,8 @@ function polars_expr_str_contains_literal(a, b)
     @ccall libpolars.polars_expr_str_contains_literal(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_str_split(a, b)
-    @ccall libpolars.polars_expr_str_split(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+function polars_expr_str_split(a, by, len)
+    @ccall libpolars.polars_expr_str_split(a::Ptr{polars_expr_t}, by::Ptr{UInt8}, len::Csize_t)::Ptr{polars_expr_t}
 end
 
 function polars_expr_struct_field_by_name(a, name, len)
@@ -727,10 +699,6 @@ end
 
 function polars_value_binary_get(value, user, callback)
     @ccall libpolars.polars_value_binary_get(value::Ptr{polars_value_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
-end
-
-function polars_value_categorical_get(value, user, callback)
-    @ccall libpolars.polars_value_categorical_get(value::Ptr{polars_value_t}, user::Ptr{Cvoid}, callback::IOCallback)::Ptr{polars_error_t}
 end
 
 """

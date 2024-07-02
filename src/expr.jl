@@ -52,7 +52,7 @@ function Base.convert(::Type{Expr}, ::Missing)
 end
 function Base.convert(::Type{Expr}, s::String)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_literal_utf8(s, sizeof(s), out)
+    err = polars_expr_literal_utf8(s, length(s), out)
     polars_error(err)
     Expr(out[])
 end
@@ -86,15 +86,10 @@ column name `"*"` will select all columns in the dataframe.
 """
 function col(name)
     expr = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_col(name, sizeof(name), expr)
+    err = polars_expr_col(name, length(name), expr)
     polars_error(err)
     return Expr(expr[])
 end
-
-module Names
-
-using ..Polars.API
-using ..Polars: Expr, polars_error
 
 """
     alias(expr::Polars.Expr, name::String)::Polars.Expr
@@ -104,23 +99,11 @@ Renames the result of this expression to a new name.
 """
 function alias(expr, alias)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_alias(expr, alias, sizeof(alias), out)
+    err = polars_expr_alias(expr, alias, length(alias), out)
     polars_error(err)
     return Expr(out[])
 end
 alias(new_name) = Base.Fix2(alias, new_name)
-
-"""
-    keep(expr::Polars.Expr)::Polars.Expr
-
-Keeps the same name for the given expression.
-
-!!! warning
-    `Names.keep` must be the last expression in a chain of expressions.
-"""
-function keep(expr)
-    Expr(polars_expr_name_keep(expr))
-end
 
 """
     prefix(expr::Polars.Expr, prefix::String)::Polars.Expr
@@ -130,7 +113,7 @@ Adds a prefix to the name of the resulting expression.
 """
 function prefix(expr, pref)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_name_prefix(expr, pref, sizeof(pref), out)
+    err = polars_expr_prefix(expr, pref, length(pref), out)
     polars_error(err)
     return Expr(out[])
 end
@@ -144,19 +127,11 @@ Adds a suffix to the name of the resulting expression.
 """
 function suffix(expr, suf)
     out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_name_suffix(expr, suf, sizeof(suf), out)
+    err = polars_expr_suffix(expr, suf, length(suf), out)
     polars_error(err)
     return Expr(out[])
 end
 suffix(suf) = Base.Fix2(suffix, suf)
-
-export alias, suffix, prefix, keep
-
-end # module Names
-
-using .Names: prefix, suffix, alias
-
-@deprecate keep_name(x) Names.keep(x)
 
 """
     lit(x)::Polars.Expr
@@ -166,8 +141,6 @@ expressions.
 function lit(v)
     convert(Expr, v)
 end
-
-Base.count() = Expr(polars_expr_count())
 
 """
     cast(expr::Polars.Expr, dtype::Type)::Polars.Expr
@@ -210,24 +183,6 @@ function cast(expr, dtype)
     Expr(casted)
 end
 cast(dtype) = Base.Fix2(cast, dtype)
-
-"""
-    var(expr::Polars.Expr, ddof::Integer=1)::Polars.Expr
-
-Refer to [the polars documentation](https://docs.rs/polars/latest/polars/prelude/enum.Expr.html#method.var).
-"""
-function var(expr, ddof=1)
-    Expr(polars_expr_var(expr, ddof))
-end
-
-"""
-    std(expr::Polars.Expr, ddof::Integer=1)::Polars.Expr
-
-Refer to [the polars documentation](https://docs.rs/polars/latest/polars/prelude/enum.Expr.html#method.std).
-"""
-function std(expr, ddof=1)
-    Expr(polars_expr_std(expr, ddof))
-end
 
 macro generate_expr_fns(ex)
     @assert ex.head === :block
@@ -278,6 +233,8 @@ end
 
 # We just copy the rust code here and generate functions on the fly.
 @generate_expr_fns begin
+    gen_impl_expr!(polars_expr_keep_name, Expr::keep_name)
+
     gen_impl_expr!(polars_expr_sum, Expr::sum)
     gen_impl_expr!(polars_expr_product, Expr::product)
     gen_impl_expr!(polars_expr_mean, Expr::mean)
@@ -301,7 +258,7 @@ end
 
     gen_impl_expr!(polars_expr_n_unique, Expr::n_unique)
     gen_impl_expr!(polars_expr_unique, Expr::unique)
-    gen_impl_expr!(polars_expr_count_unary, Expr::count)
+    gen_impl_expr!(polars_expr_count, Expr::count)
     gen_impl_expr!(polars_expr_first, Expr::first)
     gen_impl_expr!(polars_expr_last, Expr::last)
 
@@ -331,16 +288,13 @@ end
     gen_impl_expr_binary!(polars_expr_sub, Expr::sub)
     gen_impl_expr_binary!(polars_expr_mul, Expr::mul)
     gen_impl_expr_binary!(polars_expr_div, Expr::div)
-
-    gen_impl_expr_binary!(polars_expr_fill_null, Expr::fill_null)
-    gen_impl_expr_binary!(polars_expr_fill_nan, Expr::fill_nan)
 end
 
 module Lists
 using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
 
 @generate_expr_fns begin
-    gen_impl_expr_list!(polars_expr_list_len, ListNameSpace::lengths)
+    gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths)
     gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max)
     gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min)
     gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max)
@@ -366,8 +320,8 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
     gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::uppercase)
     gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::lowercase)
     gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
-    gen_impl_expr_str!(polars_expr_str_len_chars, StringNameSpace::lengths_chars)
-    gen_impl_expr_str!(polars_expr_str_len_bytes, StringNameSpace::lengths_bytes)
+    gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::n_chars)
+    gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::lengths)
     gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
     gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with)
@@ -376,8 +330,19 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
         polars_expr_str_contains_literal,
         StringNameSpace::contains_literal
     )
-    gen_impl_expr_binary_str!(polars_expr_str_split, StringNameSpace::split)
 end
+
+"""
+    field_by_name(expr::Polars.Expr, name::String)::Polars.Expr
+    field_by_name(name::String)::Base.Fix2{typeof(field_by_name), String}
+
+Returns a new series corresponding to values of the selected field.
+"""
+function split(expr, by)
+    field = API.polars_expr_str_split(expr, by, length(by))
+    Expr(field)
+end
+split(by) = Base.Fix2(split, by)
 
 end # module Strings
 
@@ -391,7 +356,7 @@ using ..Polars: Expr, API
 Returns a new series corresponding to values of the selected field.
 """
 function field_by_name(expr, name)
-    field = API.polars_expr_struct_field_by_name(expr, name, sizeof(name))
+    field = API.polars_expr_struct_field_by_name(expr, name, length(name))
     Expr(field)
 end
 field_by_name(name) = Base.Fix2(field_by_name, name)
@@ -416,7 +381,7 @@ Renames the fields of the struct series with the provided new names.
 """
 function rename_fields(expr, new_names)
     new_names = convert(Vector{String}, new_names)
-    new_struct = API.polars_expr_struct_rename_fields(expr, new_names, sizeof.(new_names), length(new_names))
+    new_struct = API.polars_expr_struct_rename_fields(expr, new_names, length.(new_names), length(new_names))
     @assert new_struct != C_NULL "failed to rename fields"
     Expr(new_struct)
 end
@@ -426,6 +391,5 @@ export field_by_name, field_by_index, rename_fields
 
 end # module Structs
 
-export col, alias, prefix, suffix, keep_name,
-       lit, cast, var, std,
-       Names, Lists, Strings, Structs
+export col, alias, prefix, suffix, lit, cast,
+       Lists, Strings, Structs

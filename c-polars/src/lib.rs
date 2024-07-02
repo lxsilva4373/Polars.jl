@@ -117,42 +117,25 @@ pub extern "C" fn polars_dataframe_new_from_carrow(
 ) -> *mut polars_dataframe_t {
     // Safety: the field ptr is expected to be a valid pointer to an ArrowSchema according to
     // the C Data interface.
-    let field = match unsafe { ffi::import_field_from_c(&*cfield) } {
-        Ok(field) => field,
-        Err(err) => {
-            #[cfg(debug_assertions)]
-            eprintln!("error: {err}");
-            return std::ptr::null_mut();
-        }
+    let Ok(field) = (unsafe { ffi::import_field_from_c(&*cfield) }) else {
+        return std::ptr::null_mut();
     };
 
     // Safety: carray will not be destroyed at the end of the function since import_array_from_c
     // takes ownership of it. Therefore, it should be destroyed once the dataframe is destroyed
     // using polars_dataframe_destroy.
-    let array = match unsafe { ffi::import_array_from_c(carray, field.data_type.clone()) } {
-        Ok(array) => array,
-        Err(err) => {
-            #[cfg(debug_assertions)]
-            eprintln!("error: {err}");
-            return std::ptr::null_mut();
-        }
+    let Ok(array) = (unsafe { ffi::import_array_from_c(carray, field.data_type.clone()) }) else {
+        return std::ptr::null_mut();
     };
 
     let Some(sarray) = array.as_any().downcast_ref::<StructArray>() else {
-        #[cfg(debug_assertions)]
-        eprintln!("cannot create struct array");
         // caller is expected to provide a struct array (encoding +s) with field
         // being the columns.
         return std::ptr::null_mut();
     };
 
-    let df = match DataFrame::try_from(sarray.clone()) {
-        Ok(df) => df,
-        Err(err) => {
-            #[cfg(debug_assertions)]
-            eprintln!("error: {err}");
-            return std::ptr::null_mut();
-        }
+    let Ok(df) = DataFrame::try_from(sarray.clone()) else {
+        return std::ptr::null_mut();
     };
 
     make_dataframe(df)
@@ -373,26 +356,6 @@ pub unsafe extern "C" fn polars_lazy_frame_with_columns(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_with_row_count(
-    df: *mut polars_lazy_frame_t,
-    name: *const u8,
-    len: usize,
-    offset: u32,
-) -> *const polars_error_t {
-    let name = std::slice::from_raw_parts(name, len);
-    let name = match std::str::from_utf8(name) {
-        Ok(path) => path,
-        Err(err) => return make_error(err),
-    };
-
-    let mut df = Box::from_raw(df);
-    df.inner = df.inner.with_row_count(name, Some(offset));
-    std::mem::forget(df);
-
-    std::ptr::null()
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn polars_lazy_frame_select(
     df: *mut polars_lazy_frame_t,
     exprs: *const *const polars_expr_t,
@@ -443,7 +406,7 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by(
         .iter()
         .map(|expr| (**expr).inner.clone())
         .collect();
-    let gb = (*df).inner.clone().group_by(&exprs);
+    let gb = (*df).inner.clone().groupby(&exprs);
     Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
 }
 

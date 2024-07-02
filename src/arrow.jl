@@ -1,7 +1,6 @@
 # https://arrow.apache.org/docs/format/CDataInterface.html#
 # https://arrow.apache.org/docs/format/Columnar.html#format-columnar
 
-using PooledArrays: PooledVector
 using .API:
     ArrowSchema as CArrowSchema,
     ArrowArray as CArrowArray
@@ -59,11 +58,6 @@ end
 
 function parse_format(schema)
     fmt = unsafe_string(schema.format)
-
-    if schema.dictionary != C_NULL
-        T = parse_format(unsafe_load(schema.dictionary))
-        return T >: Missing ? MaybeMissing{Categorical{nomissing(T)}} : Categorical{T}
-    end
 
     fmt == "n" && return MaybeMissing{Nothing}
     fmt == "b" && return MaybeMissing{Bool}
@@ -176,17 +170,9 @@ mutable struct ArrowSchema
     carrow_schema::CArrowSchema
 end
 
-"""
-Quoting the CDataInterface docs:
-
-> Consumers MUST call a base structure’s release callback when they won’t be using it anymore,
-> but they MUST not call any of its children’s release callbacks (including the optional dictionary).
-> The producer is responsible for releasing the children.
-"""
 function release_schema!(schema)
-    foreach(release_schema!, schema.children)
-    if !isnothing(schema.dictionary)
-        release_schema!(schema.dictionary)
+    for child in schema.children
+        delete!(LIVE_SCHEMAS, child)
     end
     delete!(LIVE_SCHEMAS, schema)
 end
@@ -236,9 +222,7 @@ function ArrowSchema(; format, name, metadata=nothing, flags=0, children=ArrowSc
             flags,
             length(children),
             pointer(children_pointers),
-            isnothing(dictionary) ?
-                C_NULL :
-                Base.unsafe_convert(Ptr{CArrowSchema}, dictionary),
+            isnothing(dictionary) ? C_NULL : throw("unsupported dictionary"),
             C_NULL,
             C_NULL,
         )
@@ -293,24 +277,12 @@ mutable struct ArrowArray
     children::Vector{ArrowArray}
     children_ptrs::Vector{Ptr{CArrowArray}}
 
-    dictionary::Union{Nothing,ArrowArray}
-
     carrow_array::CArrowArray
 end
 
-"""
-Quoting the CDataInterface docs:
-
-> Consumers MUST call a base structure’s release callback when they won’t be using it anymore,
-> but they MUST not call any of its children’s release callbacks (including the optional dictionary).
-> The producer is responsible for releasing the children.
-
-This function is the producer taking responsability for Julia owned arrays.
-"""
 function release_array!(array)
-    foreach(release_array!, array.children)
-    if !isnothing(array.dictionary)
-        release_array!(array.dictionary)
+    for child in array.children
+        delete!(LIVE_ARRAYS, child)
     end
     delete!(LIVE_ARRAYS, array)
 end
@@ -319,6 +291,7 @@ function base_release_array(carray_ptr::Ptr{CArrowArray})
     carray = unsafe_load(carray_ptr)
     array = unsafe_pointer_to_objref(Ptr{ArrowArray}(carray.private_data))
     release_array!(array)
+
     nothing
 end
 
@@ -348,7 +321,7 @@ function set_private_data!(array::ArrowArray)
     nothing
 end
 
-function ArrowArray(vm::ValidityMap, buffers, children=[], dictionary=nothing)
+function ArrowArray(vm::ValidityMap, buffers, children=[])
     buffer_ptrs = [validitybuffer(vm),
         (buffer isa Ptr ? Ptr{UInt8}(buffer) : Ptr{UInt8}(pointer(buffer))
          for buffer in buffers)...]
@@ -360,7 +333,6 @@ function ArrowArray(vm::ValidityMap, buffers, children=[], dictionary=nothing)
         buffer_ptrs,
         children,
         children_ptrs,
-        dictionary,
         CArrowArray(
             vm.ℓ,
             vm.nc,
@@ -369,9 +341,7 @@ function ArrowArray(vm::ValidityMap, buffers, children=[], dictionary=nothing)
             length(children_ptrs),
             pointer(buffer_ptrs),
             pointer(children_ptrs),
-            isnothing(dictionary) ?
-                C_NULL :
-                Base.unsafe_convert(Ptr{CArrowArray}, dictionary),
+            C_NULL,
             C_NULL,
             C_NULL,
         )
@@ -401,11 +371,6 @@ arrowvector(v::Vector{T}) where {T<:PhysicalDType} =
 arrowvector(v::Vector{MaybeMissing{T}}) where {T<:PhysicalDType} =
     ArrowArray(ValidityMap(v), [v], [])
 
-function arrowvector(v::PooledVector)
-    pool = arrowvector(v.pool)
-    ArrowArray(ValidityMap(v), [v.refs .- one(eltype(v.refs))], [], pool)
-end
-
 function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{String},String}}
     byte_lengths = map(x -> ismissing(x) ? zero(UInt32) : UInt32(sizeof(x)), v)
 
@@ -431,11 +396,6 @@ function arrowvector(v::Vector{S}) where {S<:Union{MaybeMissing{String},String}}
     ArrowArray(ValidityMap(v), Vector[offsets, value_buffer], [])
 end
 
-# Generic fallback
-arrowvector(a::AbstractVector) = arrowvector(collect(a))
-
-ref_type(::Type{PooledVector{T,R,P}}) where {T,R,P} = eltype(P)
-
 # Encodes the provided table to an ArrowArray
 # this code should not fail as it can leak memory
 # by populating LIVE_SCHEMAS or LIVE_ARRAYS with
@@ -445,11 +405,7 @@ function arrowtable(table, table_name)
     tschema = Tables.schema(table)
 
     children = map(zip(tschema.names, tschema.types)) do (name, type)
-        backing_type =  typeof(table[name])
-        name = string(name)
-        backing_type <: PooledVector ?
-            ArrowSchema(; format=format(ref_type(backing_type)), dictionary=ArrowSchema(; format=format(type), name), name) :
-            ArrowSchema(; format=format(type), name)
+        ArrowSchema(; format=format(type), name=string(name))
     end
 
     schema = ArrowSchema(;

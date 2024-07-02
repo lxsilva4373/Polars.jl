@@ -11,9 +11,10 @@ crate-type = ["cdylib"]
 cbindgen = "0.25.0"
 
 [dependencies.polars-core]
-version = "0.34.2"
+git = "https://github.com/pola-rs/polars"
+rev = "c6a301e3141d40c6c6febdebe0b95632ac8da2ed" # https://github.com/pola-rs/polars/pull/10568
 
 [dependencies.polars]
-version = "0.34.2"
-features = ["parquet", "abs", "round_series", "lazy_regex", "lazy", "performant", "is_in",
-            "dtype-categorical", "strings", "trigonometry"]
+git = "https://github.com/pola-rs/polars"
+rev = "c6a301e3141d40c6c6febdebe0b95632ac8da2ed" # https://github.com/pola-rs/polars/pull/10568
+features = ["parquet", "lazy", "performant"]
